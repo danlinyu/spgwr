@@ -1,4 +1,4 @@
-# Copyright 2001-2013 Roger Bivand and Danlin Yu
+# Copyright 2001-2023 Roger Bivand and Danlin Yu
 # 
 
 gwr <- function(formula, data = list(), coords, bandwidth, 
@@ -287,19 +287,46 @@ gwr <- function(formula, data = list(), coords, bandwidth,
 # Maciej Kryza 130906 drop issue
 		bw <- bandwidthR2
 	    }
-	    if (any(bandwidth < 0)) stop("Invalid bandwidth")
+
+	    if (any(bandwidth < 0)) stop("Invalid bandwidth")		
+		
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+		dxs <- matrix(nrow = n, ncol = n)
+		w <- matrix(nrow = n, ncol = n)
+		
+		for (i in 1:n) {
+			dxs[i,] <- spDistsN1(coords, fit.points[i,1:2], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+				longlat=GWR_args$longlat)
+			if (any(!is.finite(dxs[i,])))
+				dxs[which(!is.finite(dxs[i,]))] <- .Machine$double.xmax/2
+#			if (!is.finite(dxs[i,])) 
+#				dxs[i,] <- 0
+			w[i,] <- gweight(dxs[i,]^2, bandwidthR2[i])
+#			w[i,] <- w[i,] * weights
+#			if (any(w[i,] < 0 | is.na(w[i,])))
+ #       		stop(paste("Invalid weights for i:", i))	
+		}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+		w <- apply (w, 2, function(col) col / sum(col))		
+		
+
 	    for (i in 1:n) {
-		dxs <- spDistsN1(coords, fit.points[i,1:2], 
-		    longlat=GWR_args$longlat)
-		if (any(!is.finite(dxs)))
-			dxs[which(!is.finite(dxs))] <- .Machine$double.xmax/2
+#		dxs <- spDistsN1(coords, fit.points[i,1:2], 
+#		    longlat=GWR_args$longlat)
+#		if (any(!is.finite(dxs)))
+#			dxs[which(!is.finite(dxs))] <- .Machine$double.xmax/2
 #		if (!is.finite(dxs[i])) dxs[i] <- 0
-		w.i <- gweight(dxs^2, bandwidthR2[i])
-		w.i <- w.i * weights
-		if (any(w.i < 0 | is.na(w.i)))
+#		w.i <- gweight(dxs^2, bandwidthR2[i])
+		w[i,] <- w[i,] * weights
+		if (any(w[i,] < 0 | is.na(w[i,])))
         		stop(paste("Invalid weights for i:", i))
-                RSS <- sum(w.i * (y - df$df[,"pred"])^2)
-		yss <- sum(w.i * (y - weighted.mean(y, w.i))^2)
+                RSS <- sum(w[i,] * (y - df$df[,"pred"])^2)
+		yss <- sum(w[i,] * (y - weighted.mean(y, w[,i]))^2)
                 localR2[i] <- 1 - (RSS/yss)
             }
             df$df <- cbind(df$df, localR2)
@@ -380,7 +407,7 @@ gwr <- function(formula, data = list(), coords, bandwidth,
 
 
 print.gwr <- function(x, ...) {
-	if(!inherits(x, "gwr")) stop("not a gwr object")
+	if(class(x) != "gwr") stop("not a gwr object")
 	cat("Call:\n")
 	print(x$this.call)
 	cat("Kernel function:", x$gweight, "\n")
@@ -479,19 +506,65 @@ print.gwr <- function(x, ...) {
 		    quant=GWR_args$adapt, longlat=GWR_args$longlat)
 		bw <- bandwidth
 	    }
+		
+
+
+
+#	dist2 <- (as.matrix(dist(coords)))^2
+#	#To get either the fixed or adaptive kernal
+#	if (identical(gweight,gwr.gauss) || identical(gweight, gwr.bisquare))
+#	{
+#		w <- gweight(dist2, bandwidth)
+#	}
+#	else if (identical(gweight, gwr.adaptive))
+#	{
+#		if (nearestnb <= m) stop ("Invalid neareast neighbor")
+#		w <- gweight(dist2,nearestnb)$w
+#		bandwidth <- gweight(dist2,nearestnb)$bw
+#	}
+# The weights here needs to be double weighted by column standardization. This is because in the weight matrix, each column represents location i being neighbor of other locations (itself included); each row represents other locations being neighbor of location i.
+#	w <- apply(w, 2, function(col) col / sum(col)) # apply() to column will not transpose the matrix, but to row it will. After column-standardization, for each column, it indicates for that location, how much percentage of the information each of SDGPs from the locations that take it as one of their neighbors generated at this location. For each row, it indicates how much information was generated on each of its neighbors (itself included) from its own SDGP!!! These are the weights we will be using to weigh the location's neighbors (itself included) so that we generate a local sample that is purely from its own SDPG, and is free from spatial effects! This could change many things. I need to test it out!
+		
+
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+		dxs <- matrix(nrow = n, ncol = n)
+		w <- matrix(nrow = n, ncol = n)
+		
+		for (i in 1:n) {
+			dxs[i,] <- spDistsN1(coords, fit.points[i,], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+				longlat=GWR_args$longlat)
+			if (any(!is.finite(dxs[i,])))
+				dxs[which(!is.finite(dxs[i,]))] <- 0
+			if (!is.finite(dxs[i,])) 
+				dxs[i,] <- 0
+			w[i,] <- gweight(dxs[i,]^2, bandwidth[i])
+			w[i,] <- w[i,] * weights
+			if (any(w[i,] < 0 | is.na(w[i,])))
+        		stop(paste("Invalid weights for i:", i))	
+		}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+		w <- apply (w, 2, function(col) col / sum(col))
+
+
+		
 	    if (any(bandwidth < 0)) stop("Invalid bandwidth")
 	    for (i in 1:n) {
-		dxs <- spDistsN1(coords, fit.points[i,], 
-		    longlat=GWR_args$longlat)
-		if (any(!is.finite(dxs)))
-			dxs[which(!is.finite(dxs))] <- 0
+#		dxs <- spDistsN1(coords, fit.points[i,], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+#		    longlat=GWR_args$longlat)
+#		if (any(!is.finite(dxs)))
+#			dxs[which(!is.finite(dxs))] <- 0
 #		if (!is.finite(dxs[i])) dxs[i] <- 0
-		w.i <- gweight(dxs^2, bandwidth[i])
-		w.i <- w.i * weights
-		if (any(w.i < 0 | is.na(w.i)))
-        		stop(paste("Invalid weights for i:", i))
-		lm.i <- lm.wfit(x, y, w.i)
-		sum.w[i] <- sum(w.i)
+#		w.i <- gweight(dxs^2, bandwidth[i])
+#		w.i <- w.i * weights
+#		if (any(w.i < 0 | is.na(w.i)))
+#        		stop(paste("Invalid weights for i:", i))
+		lm.i <- lm.wfit(x, y, w[i,])
+		sum.w[i] <- sum(w[i,])
 		betas[i,] <- coefficients(lm.i)
 		ei <- residuals(lm.i)
 # prediction fitted values at fit point
@@ -505,8 +578,8 @@ print.gwr <- function(x, ...) {
 # differs from local weighted regression R-squared
 
 		if (!is.null(yhat)) {
-		    RSS <- sum(w.i * (y - yhat)^2)
-                    yss <- sum(w.i * (y - weighted.mean(y, w.i))^2)
+		    RSS <- sum(w[i,] * (y - yhat)^2)
+                    yss <- sum(w[i,] * (y - weighted.mean(y, w[i,]))^2)
 		    localR2[i] <- 1 - (RSS/yss)
 		}
 
@@ -519,7 +592,7 @@ print.gwr <- function(x, ...) {
 		      inv.Z <- chol2inv(lm.i$qr$qr[p1, p1, drop=FALSE])
 # p. 55 CC definition 
                       if (GWR_args$se.fit.CCT) {
-                        C <- inv.Z %*% t(x) %*% diag(w.i)
+                        C <- inv.Z %*% t(x) %*% diag(w[i,])
                         CC <- C %*% t(C)
 # only return coefficient covariance matrix diagonal raw values
 # for post-processing
@@ -544,7 +617,7 @@ print.gwr <- function(x, ...) {
                     gwr.e[i] <- ei[i]
 
 		if (!GWR_args$fp.given && GWR_args$hatmatrix && (p==m)) 
-			lhat[i,] <- t(x[i,]) %*% inv.Z %*% t(x) %*% diag(w.i)
+			lhat[i,] <- t(x[i,]) %*% inv.Z %*% t(x) %*% diag(w[i,])
 	    }
 	    df <- cbind(sum.w, betas, betase, gwr.e, pred, pred.se, localR2)
 	    if (!GWR_args$fp.given && GWR_args$hatmatrix) 
