@@ -1,4 +1,4 @@
-# Copyright 2001-2004 Roger Bivand and Danlin Yu
+# Copyright 2001-20023 Roger Bivand and Danlin Yu
 # 
 
 #gw.dists <- function(dp, pt, lonlat=FALSE) {
@@ -100,24 +100,50 @@ gw.cov <- function(x, vars, fp, adapt=NULL, bw, gweight=gwr.bisquare,
 	dm <- numeric(nc)
 	rss <- numeric(nc)
 	trhat <- 0
+	
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+	dxs <- matrix(nrow = n, ncol = n)
+	w <- matrix(nrow = n, ncol = n)
+	
+	for (i in 1:n) {
+		dxs[i,] <- spDistsN1(dp, dp[i,], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+			longlat=longlat)
+		if (!is.finite(dxs[i,])) dxs[i,] <- .Machine$double.xmax/2
+#			if (!is.finite(dxs[i,])) 
+#				dxs[i,] <- 0
+		w[i,] <- gweight(dxs[i,]^2, bw0[i])
+#		w[i,] <- w[i,] * weights
+#		if (any(w[i,] < 0 | is.na(w[i,])))
+#      		stop(paste("Invalid weights for i:", i))	
+		}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+		wts <- apply (w, 2, function(col) col / sum(col))		
+			
+	
+	
 	for (i in 1:n1) { # establish residuals for data points and 
 			# calculate hat matrix trace
-		dxs <- spDistsN1(dp, dp[i,], longlat=longlat)
-		if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
-		wts <- gweight(dist2=dxs^2, bw0[i])
-		if (any(wts < 0 | is.na(wts))) {
+#		dxs <- spDistsN1(dp, dp[i,], longlat=longlat)
+#		if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+#		wts <- gweight(dist2=dxs^2, bw0[i])
+		if (any(wts[i,] < 0 | is.na(wts[i,]))) {
 			print(dxs)
-			print(wts)
+			print(wts[i,])
         		stop(paste("Invalid weights for i:", i)) }
-		if (sum(wts) == 0) {
+		if (sum(wts[i,]) == 0) {
 			print(dxs)
-			print(wts)
+			print(wts[i,])
         		stop(paste("Invalid weights for i:", i)) }
 		for (j in 1:nc) {
-			dm[j] <- weighted.mean(x[,j], wts)
+			dm[j] <- weighted.mean(x[,j], wts[i,])
 			rss[j] <- rss[j] + (x[i,j] - dm[j])^2
 		}
-		trhat <- trhat + wts[i]/sum(wts)
+		trhat <- trhat + wts[i,][i]/sum(wts[i,])
 	}
 	dm <- sqrt(rss/(n1 - trhat))
 	# global adjusted residual standard error
@@ -160,23 +186,49 @@ gw.cov <- function(x, vars, fp, adapt=NULL, bw, gweight=gwr.bisquare,
 	swts <- numeric(n2)
 	swts2 <- numeric(n2)
 
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+	dxs <- matrix(nrow = n, ncol = n)
+	w <- matrix(nrow = n, ncol = n)
+	
+	for (i in 1:n) {
+		dxs[i,] <- spDistsN1(dp, fp[i,], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+			longlat=longlat)
+		if (any(!is.finite(dxs[i,])))
+			dxs[which(!is.finite(dxs[i,]))] <- 0
+#			if (!is.finite(dxs[i,])) 
+#				dxs[i,] <- 0
+		w[i,] <- gweight(dxs[i,]^2, bw[i])
+#		w[i,] <- w[i,] * weights
+#		if (any(w[i,] < 0 | is.na(w[i,])))
+#      		stop(paste("Invalid weights for i:", i))	
+		}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+		wts <- apply (w, 2, function(col) col / sum(col))		
+			
+
+
 	for (i in 1:n2) {
-		dxs <- spDistsN1(dp, fp[i,], longlat=longlat)
-		if (any(!is.finite(dxs)))
-			dxs[which(!is.finite(dxs))] <- 0
+#		dxs <- spDistsN1(dp, fp[i,], longlat=longlat)
+#		if (any(!is.finite(dxs)))
+#			dxs[which(!is.finite(dxs))] <- 0
 #		if (!is.finite(dxs[i])) dxs[i] <- 0
-		wts <- gweight(dxs^2, bw[i])
-		if (any(wts < 0 | is.na(wts))) {
+#		wts <- gweight(dxs^2, bw[i])
+		if (any(wts[i,] < 0 | is.na(wts[i,]))) {
 			print(dxs)
-			print(wts)
+			print(wts[i,])
         		stop(paste("Invalid weights for i:", i))}
-		swts[i] <- sum(wts)
+		swts[i] <- sum(wts[i,])
 		if (swts[i] == 0) {
 			print(dxs)
-			print(wts)
+			print(wts[i,])
         		stop(paste("Invalid weights for i:", i))}
-		swts2[i] <- sum((wts/swts[i])^2)
-		res1 <- cov.wt(as.matrix(x), wts, cor=cor)
+		swts2[i] <- sum((wts[i,]/swts[i])^2)
+		res1 <- cov.wt(as.matrix(x), wts[i,], cor=cor)
 		res[i, 1:nc] <- res1$center
 		if (var.term) {
 			cov <- res1$cov * sqrt(1 - swts2[i])
