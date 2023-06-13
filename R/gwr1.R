@@ -1,4 +1,4 @@
-# Copyright 2006-8 Roger Bivand
+# Copyright 2006-2023 Roger Bivand & Danlin Yu
 # 
 
 ggwr <- function(formula, data = list(), coords, bandwidth, 
@@ -99,16 +99,39 @@ ggwr <- function(formula, data = list(), coords, bandwidth,
 	lhat <- NA
 	sum.w <- numeric(n)
 	dispersion <- numeric(n)
+
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+	dxs <- matrix(nrow = n, ncol = n)
+	w <- matrix(nrow = n, ncol = n)
+	
 	for (i in 1:n) {
-		dxs <- spDistsN1(coords, fit.points[i,], longlat=longlat)
-		if (any(!is.finite(dxs)))
-			dxs[which(!is.finite(dxs))] <- .Machine$double.xmax/2
-		w.i <- gweight(dxs^2, bandwidth[i])
-		if (any(w.i < 0 | is.na(w.i)))
-        		stop(paste("Invalid weights for i:", i))
-		lm.i <- glm.fit(y=y, x=x, weights=w.i, offset=offset,
+		dxs[i,] <- spDistsN1(coords, fit.points[i,], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+			longlat=longlat)
+		if (any(!is.finite(dxs[i,])))
+			dxs[i,][which(!is.finite(dxs[i,]))] <- .Machine$double.xmax/2
+		w[i,] <- gweight(dxs[i,]^2, bandwidth[i])
+#		w[i,] <- w[i,] * weights
+		if (any(w[i,] < 0 | is.na(w[i,])))
+       		stop(paste("Invalid weights for i:", i))	
+	}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+	w <- apply (w, 2, function(col) col / sum(col))
+			
+	for (i in 1:n) {
+#		dxs <- spDistsN1(coords, fit.points[i,], longlat=longlat)
+#		if (any(!is.finite(dxs)))
+#			dxs[which(!is.finite(dxs))] <- .Machine$double.xmax/2
+#		w.i <- gweight(dxs^2, bandwidth[i])
+#		if (any(w.i < 0 | is.na(w.i)))
+ #       		stop(paste("Invalid weights for i:", i))
+		lm.i <- glm.fit(y=y, x=x, weights=w[i,], offset=offset,
 			family=family)
-		sum.w[i] <- sum(w.i)
+		sum.w[i] <- sum(w[i,])
 		gwr.b[i,] <- coefficients(lm.i)
 		if (!fp.given) v_resids[i] <- residuals.glm(lm.i, type=type)[i]
 		else is.na(v_resids[i]) <- TRUE
