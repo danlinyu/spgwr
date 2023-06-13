@@ -1,5 +1,5 @@
 # Copyright 2006-8 Roger Bivand
-# 
+# Copyright 2023 Danlin Yu 
 
 ggwr.sel <- function(formula, data = list(), coords, 
 	adapt=FALSE, gweight=gwr.Gauss, family=gaussian, verbose=TRUE, 
@@ -65,14 +65,37 @@ ggwr.cv.f <- function(bandwidth, formula, data, family, coords, y,
     n <- nrow(coords)
     cv <- numeric(n)
     options(show.error.messages = FALSE)
+	
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+	dxs <- matrix(nrow = n, ncol = n)
+	w <- matrix(nrow = n, ncol = n)
+	
+	for (i in 1:n) {
+		dxs[i,] <- spDistsN1(coords, coords[i,], longlat=longlat) # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+		if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+		w[i,] <- gweight(dxs[i,]^2, bandwidth)
+#		w[i,] <- w[i,] * weights
+		if (any(w[i,] < 0 | is.na(w[i,])))
+       		stop(paste("Invalid weights for i:", i))	
+	}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+	w <- apply (w, 2, function(col) col / sum(col))
+	
+	
+	
     for (i in 1:n) {
-	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
-	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
-	w.i <- gweight(dxs^2, bandwidth)
-        w.i[i] <- 0
-	if (any(w.i < 0 | is.na(w.i)))
-       		stop(paste("Invalid weights for i:", i))
-	datai <- data.frame(data, w.i=w.i)
+#	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
+#	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+#	w.i <- gweight(dxs^2, bandwidth)
+        w[i,][i] <- 0
+#	if (any(w.i < 0 | is.na(w.i)))
+#       		stop(paste("Invalid weights for i:", i))
+	datai <- data.frame(data, w.i=w[i,])
         lm.i <- try(glm(formula=formula, data=datai, family=family, 
 		weights=w.i))
         if(!inherits(lm.i, "try-error")) {
@@ -95,14 +118,37 @@ ggwr.cv.adapt.f <- function(q, formula, data, family, coords, y, gweight,
     cv <- numeric(n)
     bw <- gw.adapt(dp=coords, fp=coords, quant=q, longlat=longlat)
     options(show.error.messages = FALSE)
+	
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+	dxs <- matrix(nrow = n, ncol = n)
+	w <- matrix(nrow = n, ncol = n)
+	
+	for (i in 1:n) {
+		dxs[i,] <- spDistsN1(coords, coords[i,], longlat=longlat) # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+		if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+		w[i,] <- gweight(dxs[i,]^2, bw[i])
+#		w[i,] <- w[i,] * weights
+		if (any(w[i,] < 0 | is.na(w[i,])))
+       		stop(paste("Invalid weights for i:", i))	
+	}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+	w <- apply (w, 2, function(col) col / sum(col))
+		
+	
+	
     for (i in 1:n) {
-	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
-	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
-	w.i <- gweight(dxs^2, bw[i])
-        w.i[i] <- 0
-	if (any(w.i < 0 | is.na(w.i)))
-       		stop(paste("Invalid weights for i:", i))
-	datai <- data.frame(data, w.i=w.i)
+#	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
+#	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+#	w.i <- gweight(dxs^2, bw[i])
+        w[i,][i] <- 0
+#	if (any(w.i < 0 | is.na(w.i)))
+#      		stop(paste("Invalid weights for i:", i))
+	datai <- data.frame(data, w.i=w[i,])
         lm.i <- try(glm(formula=formula, data=datai, family=family, 
 		weights=w.i))
         if(!inherits(lm.i, "try-error")) {
@@ -117,4 +163,3 @@ ggwr.cv.adapt.f <- function(q, formula, data, family, coords, y, gweight,
     if (verbose) cat("Adaptive q:", q, "CV score:", score, "\n")
     score
 }
-
