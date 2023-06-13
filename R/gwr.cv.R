@@ -1,4 +1,4 @@
-# Copyright 2001-2012 Roger Bivand and Danlin Yu
+# Copyright 2001-2023 Roger Bivand and Danlin Yu
 # 
 
 gwr.sel <- function(formula, data = list(), coords, adapt=FALSE, 
@@ -101,20 +101,48 @@ gwr.aic.f <- function(bandwidth, y, x, coords, gweight, verbose=TRUE, longlat=FA
     lhat <- matrix(nrow=n, ncol=n)
     flag <- 0
     options(show.error.messages = show.error.messages)
+	
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+		dxs <- matrix(nrow = n, ncol = n)
+		w <- matrix(nrow = n, ncol = n)
+		
+		for (i in i:n) {
+			dxs[i,] <- spDistsN1(coords, fit.points[i,], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+				longlat=longlat)
+			if (any(!is.finite(dxs[i,])))
+				dxs[which(!is.finite(dxs[i,]))] <- 0
+			if (!is.finite(dxs[i,])) 
+				dxs[i,] <- 0
+			w[i,] <- gweight(dxs[i,]^2, bandwidth)
+			w[i,] <- w[i,] * weights
+			if (any(w[i,] < 0 | is.na(w[i,])))
+        		stop(paste("Invalid weights for i:", i))	
+		}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+		w <- apply (w, 2, function(col) col / sum(col))
+
+	
+	
+	
     for (i in 1:n) {
 #        xx <- x[i, ]
-	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
-	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
-	w.i <- gweight(dxs^2, bandwidth)
+#	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
+#	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+#	w.i <- gweight(dxs^2, bandwidth)
 #	w.i <- gweight(spDistsN1(coords, coords[i,], longlat=longlat)^2, bandwidth)
-	if (any(w.i < 0 | is.na(w.i)))
-       		stop(paste("Invalid weights for i:", i))
-        lm.i <- try(lm.wfit(y = y, x = x, w = w.i))
+#	if (any(w.i < 0 | is.na(w.i)))
+#      		stop(paste("Invalid weights for i:", i))
+        lm.i <- try(lm.wfit(y = y, x = x, w = w[i,]))
         if(!inherits(lm.i, "try-error")) {
             p <- lm.i$rank
 	    p1 <- 1:p
 	    inv.Z <- chol2inv(lm.i$qr$qr[p1, p1, drop=FALSE])
-	    lhat[i,] <- t(x[i,]) %*% inv.Z %*% t(x) %*% diag(w.i)
+	    lhat[i,] <- t(x[i,]) %*% inv.Z %*% t(x) %*% diag(w[i,])
         } else {
 	    flag <- 1
 	}
@@ -141,17 +169,43 @@ gwr.cv.f <- function(bandwidth, y, x, coords, gweight, verbose=TRUE,
 #    m <- NCOL(x)
     cv <- numeric(n)
     options(show.error.messages = show.error.messages)
+
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+		dxs <- matrix(nrow = n, ncol = n)
+		w <- matrix(nrow = n, ncol = n)
+		
+		for (i in i:n) {
+			dxs[i,] <- spDistsN1(coords, fit.points[i,], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+				longlat=longlat)
+			if (any(!is.finite(dxs[i,])))
+				dxs[which(!is.finite(dxs[i,]))] <- 0
+			if (!is.finite(dxs[i,])) 
+				dxs[i,] <- 0
+			w[i,] <- gweight(dxs[i,]^2, bandwidth)
+			w[i,] <- w[i,] * weights
+			if (any(w[i,] < 0 | is.na(w[i,])))
+        		stop(paste("Invalid weights for i:", i))	
+		}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+		w <- apply (w, 2, function(col) col / sum(col))
+
+
     for (i in 1:n) {
         xx <- x[i, ]
-	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
-	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
-	w.i <- gweight(dxs^2, bandwidth)
+#	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
+#	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+#	w.i <- gweight(dxs^2, bandwidth)
 #	w.i <- gweight(spDistsN1(coords, coords[i,], longlat=longlat)^2, bandwidth)
-        w.i[i] <- 0
-	w.i <- w.i * weights
-	if (any(w.i < 0 | is.na(w.i)))
+        w[i,][i] <- 0
+#	w.i <- w.i * weights
+	if (any(w[i,] < 0 | is.na(w[i,])))
        		stop(paste("Invalid weights for i:", i))
-        lm.i <- try(lm.wfit(y = y, x = x, w = w.i))
+        lm.i <- try(lm.wfit(y = y, x = x, w = w[i,]))
         if(!inherits(lm.i, "try-error")) {
             b <- coefficients(lm.i)
             cv[i] <- weights[i] * y[i] - (t(b) %*% (weights[i] * xx))
@@ -172,20 +226,44 @@ gwr.aic.adapt.f <- function(q, y, x, coords, gweight, verbose=TRUE, longlat=FALS
     bw <- gw.adapt(dp=coords, fp=coords, quant=q, longlat=longlat)
     flag <- 0
     options(show.error.messages = show.error.messages)
+
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+	dxs <- matrix(nrow = n, ncol = n)
+	w <- matrix(nrow = n, ncol = n)
+		
+	for (i in i:n) {
+		dxs[i,] <- spDistsN1(coords, fit.points[i,], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+			longlat=longlat)
+		if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+		w[i,] <- gweight(dxs[i,]^2, bandwidth[i])
+		w[i,] <- w[i,] * weights
+		if (any(w[i,] < 0 | is.na(w[i,])))
+       		stop(paste("Invalid weights for i:", i))	
+	}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+	w <- apply (w, 2, function(col) col / sum(col))
+
+
+
     for (i in 1:n) {
 #        xx <- x[i, ]
-	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
-	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
-	w.i <- gweight(dxs^2, bw[i])
+#	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
+#	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+#	w.i <- gweight(dxs^2, bw[i])
 #	w.i <- gweight(spDistsN1(coords, coords[i,], longlat=longlat)^2, bw[i])
-	if (any(w.i < 0 | is.na(w.i)))
-       		stop(paste("Invalid weights for i:", i))
-        lm.i <- try(lm.wfit(y = y, x = x, w = w.i))
+#	if (any(w.i < 0 | is.na(w.i)))
+#      		stop(paste("Invalid weights for i:", i))
+        lm.i <- try(lm.wfit(y = y, x = x, w = w[i,]))
         if(!inherits(lm.i, "try-error")) {
             p <- lm.i$rank
 	    p1 <- 1:p
 	    inv.Z <- chol2inv(lm.i$qr$qr[p1, p1, drop=FALSE])
-	    lhat[i,] <- t(x[i,]) %*% inv.Z %*% t(x) %*% diag(w.i)
+	    lhat[i,] <- t(x[i,]) %*% inv.Z %*% t(x) %*% diag(w[i,])
         } else {
 	    flag <- 1
 	}
@@ -213,16 +291,40 @@ gwr.cv.adapt.f <- function(q, y, x, coords, gweight, verbose=TRUE,
     cv <- numeric(n)
     bw <- gw.adapt(dp=coords, fp=coords, quant=q, longlat=longlat)
     options(show.error.messages = show.error.messages)
+	
+# To apply the new code, we need to extract the dxs first and put it into a matrix form:
+# Added 6-11-2023:
+# Create the dxs (distance matrix, instead of a vector) to generate the weight matrix w, both of the same dimension n by n.
+
+	dxs <- matrix(nrow = n, ncol = n)
+	w <- matrix(nrow = n, ncol = n)
+		
+	for (i in i:n) {
+		dxs[i,] <- spDistsN1(coords, fit.points[i,], # This line calculate the distance from location i to all other locations. Which is, however, not going to work to do double weighting.
+			longlat=longlat)
+		if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+		w[i,] <- gweight(dxs[i,]^2, bandwidth[i])
+		w[i,] <- w[i,] * weights
+		if (any(w[i,] < 0 | is.na(w[i,])))
+       		stop(paste("Invalid weights for i:", i))	
+	}
+
+# Now we have the weight matrix w, it is time to double weight the weight matrix:
+		
+	w <- apply (w, 2, function(col) col / sum(col))
+	
+	
+	
     for (i in 1:n) {
         xx <- x[i, ]
-	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
-	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
-	w.i <- gweight(dxs^2, bw[i])
-        w.i[i] <- 0
-	w.i <- w.i * weights
-	if (any(w.i < 0 | is.na(w.i)))
-       		stop(paste("Invalid weights for i:", i))
-        lm.i <- try(lm.wfit(y = y, x = x, w = w.i))
+#	dxs <- spDistsN1(coords, coords[i,], longlat=longlat)
+#	if (!is.finite(dxs[i])) dxs[i] <- .Machine$double.xmax/2
+#	w.i <- gweight(dxs^2, bw[i])
+    w.[i,][i] <- 0
+#	w.i <- w.i * weights
+#	if (any(w.i < 0 | is.na(w.i)))
+ #      		stop(paste("Invalid weights for i:", i))
+        lm.i <- try(lm.wfit(y = y, x = x, w = w[i,]))
         if(!inherits(lm.i, "try-error")) {
             b <- coefficients(lm.i)
             cv[i] <- weights[i] * y[i] - (t(b) %*% (weights[i] * xx))
